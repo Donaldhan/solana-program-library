@@ -18,11 +18,11 @@ use {
     std::{convert::TryInto, mem::size_of},
 };
 
-/// Initialize instruction data
+/// Initialize instruction data  初始化指令数据
 #[repr(C)]
 #[derive(Debug, PartialEq)]
 pub struct Initialize {
-    /// all swap fees
+    /// all swap fees swap费用
     pub fees: Fees,
     /// swap curve info for pool, including CurveType and anything
     /// else that may be required

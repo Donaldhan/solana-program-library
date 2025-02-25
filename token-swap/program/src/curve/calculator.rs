@@ -83,9 +83,26 @@ pub trait DynPack {
 }
 
 /// Trait representing operations required on a swap curve
+/// CurveCalculator 主要定义了不同 Swap 曲线所需的计算逻辑，包括：
+	// 1.	无费用 Swap 计算（swap_without_fees）。
+	// 2.	流动性池初始化供应量（new_pool_supply）。
+	// 3.	LP 代币兑换交易代币（pool_tokens_to_trading_tokens）。
+	// 4.	单边存款和取款计算（deposit_single_token_type、withdraw_single_token_type_exact_out）。
+	// 5.	曲线参数验证（validate、validate_supply）。
+	// 6.	是否允许后续存款（allows_deposits）。
+	// 7.	计算曲线的总价值（normalized_value）。
 pub trait CurveCalculator: Debug + DynPack {
     /// Calculate how much destination token will be provided given an amount
     /// of source token.
+    //     功能：
+    // 计算在不考虑交易费用的情况下，输入一定数量的 source token 可以获得多少 destination token。
+    // 参数解析：
+    // 	•	source_amount：用户想要交换的代币数量（输入代币）。
+    // 	•	swap_source_amount：池中 source token 的当前储备量。
+    // 	•	swap_destination_amount：池中 destination token 的当前储备量。
+    // 	•	trade_direction：交易方向（是 TokenA -> TokenB 还是 TokenB -> TokenA）。
+    // 返回值：
+    // 返回 Option<SwapWithoutFeesResult>，如果计算成功，包含目标代币的数量；如果失败，返回 None。
     fn swap_without_fees(
         &self,
         source_amount: u128,
@@ -96,12 +113,24 @@ pub trait CurveCalculator: Debug + DynPack {
 
     /// Get the supply for a new pool
     /// The default implementation is a Balancer-style fixed initial supply
+    /// 获取新池子的初始流动性供应量，默认值是 INITIAL_SWAP_POOL_AMOUNT（通常是 Balancer 风格的固定初始供应量）。
     fn new_pool_supply(&self) -> u128 {
         INITIAL_SWAP_POOL_AMOUNT
     }
 
     /// Get the amount of trading tokens for the given amount of pool tokens,
     /// provided the total trading tokens and supply of pool tokens.
+    /// 功能：
+    // 根据流动性代币（LP 代币）计算可以提取的交易代币数量。
+
+    // 参数解析：
+    // 	•	pool_tokens：要兑换的 LP 代币数量。
+    // 	•	pool_token_supply：当前池子的 LP 代币供应量。
+    // 	•	swap_token_a_amount / swap_token_b_amount：池子中的 Token A 和 Token B 的当前储备量。
+    // 	•	round_direction：四舍五入方向（向上或向下）。
+
+    // 返回值：
+    // 返回 TradingTokenResult，表示可以兑换出的 TokenA 或 TokenB 数量。
     fn pool_tokens_to_trading_tokens(
         &self,
         pool_tokens: u128,
@@ -120,6 +149,20 @@ pub trait CurveCalculator: Debug + DynPack {
     /// See more background for the calculation at:
     ///
     /// <https://balancer.finance/whitepaper/#single-asset-deposit-withdrawal>
+    /// 功能：
+    // 计算用户单边存入一定数量的 TokenA 或 TokenB 后，可以获得多少流动性代币（LP 代币）。
+
+    // 背景知识：
+    // 在 Balancer 交易池中，用户可以只存入一种代币，而不是两种代币按比例存入。但这种操作会影响池子的价格曲线。
+
+    // 参数解析：
+    // 	•	source_amount：用户存入的 TokenA 或 TokenB 数量。
+    // 	•	swap_token_a_amount / swap_token_b_amount：池子中的 Token A 和 Token B 的当前储备量。
+    // 	•	pool_supply：当前池子的流动性代币（LP 代币）供应量。
+    // 	•	trade_direction：存入的是 TokenA -> Pool 还是 TokenB -> Pool。
+
+    // 返回值：
+    // 返回 Option<u128>，表示可以获得的流动性代币数量。
     fn deposit_single_token_type(
         &self,
         source_amount: u128,
@@ -139,6 +182,18 @@ pub trait CurveCalculator: Debug + DynPack {
     /// See more background for the calculation at:
     ///
     /// <https://balancer.finance/whitepaper/#single-asset-deposit-withdrawal>
+    /// 功能：
+    // 计算用户从池子中单边提取一定数量的 TokenA 或 TokenB 需要消耗多少 LP 代币。
+
+    // 参数解析：
+    // 	•	source_amount：用户希望提取的 TokenA 或 TokenB 数量。
+    // 	•	swap_token_a_amount / swap_token_b_amount：池子的当前储备量。
+    // 	•	pool_supply：池子的 LP 代币总供应量。
+    // 	•	trade_direction：是 TokenA <- Pool 还是 TokenB <- Pool。
+    // 	•	round_direction：四舍五入方向。
+
+    // 返回值：
+    // 返回 Option<u128>，表示需要消耗多少 LP 代币。
     fn withdraw_single_token_type_exact_out(
         &self,
         source_amount: u128,
@@ -150,11 +205,13 @@ pub trait CurveCalculator: Debug + DynPack {
     ) -> Option<u128>;
 
     /// Validate that the given curve has no invalid parameters
+    /// 检查该曲线是否有非法参数。例如，某些曲线可能不允许某些负值或者非均衡状态。
     fn validate(&self) -> Result<(), SwapError>;
 
     /// Validate the given supply on initialization. This is useful for curves
     /// that allow zero supply on one or both sides, since the standard constant
     /// product curve must have a non-zero supply on both sides.
+    /// 检查池子在初始化时是否有足够的 TokenA 和 TokenB 储备。例如，对于 Uniswap 恒定乘积曲线，初始池子必须有非零的 TokenA 和 TokenB。
     fn validate_supply(&self, token_a_amount: u64, token_b_amount: u64) -> Result<(), SwapError> {
         if token_a_amount == 0 {
             return Err(SwapError::EmptySupply);
@@ -169,6 +226,7 @@ pub trait CurveCalculator: Debug + DynPack {
     /// after initialization.  For example, the offset curve in `offset.rs`,
     /// which fakes supply on one side of the swap, allows the swap creator
     /// to steal value from all other depositors.
+    /// 某些曲线（如 Offset 曲线）可能不允许池子在初始化后再进行存款，因为可能会造成攻击或套利风险。默认情况下，存款是允许的。
     fn allows_deposits(&self) -> bool {
         true
     }
@@ -184,6 +242,12 @@ pub trait CurveCalculator: Debug + DynPack {
     /// This is useful for testing the curves, to make sure that value is not
     /// lost on any trade.  It can also be used to find out the relative value
     /// of pool tokens or liquidity tokens.
+    /// 功能：
+    // 计算池子的总价值（用于测试和比较不同曲线的公平性）。
+
+    // 背景知识：
+    // 	•	Uniswap 使用 x * y = k，k 具有 tokens^2 的维度，所以需要开平方才能归一化。
+    // 	•	归一化价值可以用于衡量流动性池的总价值，避免因曲线不合理导致的价值损失。
     fn normalized_value(
         &self,
         swap_token_a_amount: u128,

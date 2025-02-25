@@ -1166,12 +1166,24 @@ impl Processor {
         Ok(())
     }
 
-    /// Processes an [Instruction](enum.Instruction.html).
+    /// Processes an [Instruction](enum.Instruction.html).  处理所有swap相关的指令
     pub fn process(program_id: &Pubkey, accounts: &[AccountInfo], input: &[u8]) -> ProgramResult {
         Self::process_with_constraints(program_id, accounts, input, &SWAP_CONSTRAINTS)
     }
 
     /// Processes an instruction given extra constraint
+    /// process_with_constraints 方法是 Solana Token Swap 程序 的 指令（instruction）处理器，用于解析和执行不同类型的流动性池操作。
+
+    // 这个方法的作用是：
+    // 1.	解析输入数据，将其转换为 SwapInstruction 枚举类型的具体指令。
+    // 2.	匹配不同的指令类型，并调用相应的处理函数（如 process_initialize、process_swap 等）。
+    // 3.	执行流动性池相关操作，如 初始化池子、交换代币、存取流动性等，并在执行过程中检查是否需要额外的 约束（swap_constraints）。
+
+    // •	program_id：当前合约程序的 Pubkey，用于校验该交易属于 Token Swap 程序。
+    // •	accounts：涉及的 Solana 账户，如流动性池账户、用户账户等。
+    // •	input：指令的二进制数据，需要解包（deserialize）成 SwapInstruction 以确定要执行的操作。
+    // •	swap_constraints：额外的约束条件（可选），可能用于 限制某些交易行为，比如 最大/最小流动性存取额度、交易滑点等。
+    // •	返回值：ProgramResult，表示执行结果。如果执行成功，返回 Ok(())，否则返回 Err(SwapError::XXX)。
     pub fn process_with_constraints(
         program_id: &Pubkey,
         accounts: &[AccountInfo],
@@ -1180,10 +1192,21 @@ impl Processor {
     ) -> ProgramResult {
         let instruction = SwapInstruction::unpack(input)?;
         match instruction {
+            //初始化
+            //1. 初始化流动性池
+            //         解析 Initialize 指令，包含：
+            // •	fees：池子的手续费设定。
+            // •	swap_curve：池子使用的 AMM 交易曲线类型（如 ConstantProduct、ConstantPrice）。
+            // •	调用 process_initialize 处理池子创建逻辑。
             SwapInstruction::Initialize(Initialize { fees, swap_curve }) => {
                 msg!("Instruction: Init");
                 Self::process_initialize(program_id, fees, swap_curve, accounts, swap_constraints)
             }
+            // 2. 代币交换（Swap）
+            // •	执行代币交换，将 TokenA -> TokenB 或 TokenB -> TokenA。
+            // •	amount_in：用户提供的输入代币数量。
+            // •	minimum_amount_out：用户期望获得的最小输出代币数量（用于防止滑点过大）。
+            // •	由 process_swap 处理实际的兑换逻辑。
             SwapInstruction::Swap(Swap {
                 amount_in,
                 minimum_amount_out,
@@ -1191,6 +1214,11 @@ impl Processor {
                 msg!("Instruction: Swap");
                 Self::process_swap(program_id, amount_in, minimum_amount_out, accounts)
             }
+            // 3. 双边存入流动性（DepositAllTokenTypes）
+            // •	向流动性池存入 TokenA 和 TokenB，获取流动性代币（LP Token）。
+            // •	pool_token_amount：希望获得的 LP 代币数量。
+            // •	maximum_token_a_amount / maximum_token_b_amount：存入的最大 Token A / B 数量（超出部分不存入）。
+            // •	process_deposit_all_token_types 计算需要存入的 TokenA/B，并处理流动性提供逻辑。
             SwapInstruction::DepositAllTokenTypes(DepositAllTokenTypes {
                 pool_token_amount,
                 maximum_token_a_amount,
@@ -1205,6 +1233,11 @@ impl Processor {
                     accounts,
                 )
             }
+            // 4. 双边取出流动性（WithdrawAllTokenTypes）
+            // •	从流动性池提取 TokenA 和 TokenB，销毁 LP 代币。
+            // •	pool_token_amount：要销毁的 LP 代币数量。
+            // •	minimum_token_a_amount / minimum_token_b_amount：用户希望至少收到的 Token A / B 数量（防止滑点损失）。
+            // •	由 process_withdraw_all_token_types 计算实际可提取的 TokenA/B，并执行提款操作。
             SwapInstruction::WithdrawAllTokenTypes(WithdrawAllTokenTypes {
                 pool_token_amount,
                 minimum_token_a_amount,
@@ -1219,6 +1252,11 @@ impl Processor {
                     accounts,
                 )
             }
+            // 5. 单边存款（DepositSingleTokenTypeExactAmountIn）
+            // •	只存入 TokenA 或 TokenB，获取 LP 代币（单边存入）。
+            // •	source_token_amount：存入的 TokenA 或 TokenB 数量。
+            // •	minimum_pool_token_amount：至少希望获得的 LP 代币数量（防止滑点影响）。
+            // •	由 process_deposit_single_token_type_exact_amount_in 处理实际计算。
             SwapInstruction::DepositSingleTokenTypeExactAmountIn(
                 DepositSingleTokenTypeExactAmountIn {
                     source_token_amount,
@@ -1233,6 +1271,11 @@ impl Processor {
                     accounts,
                 )
             }
+            // 6. 单边取款（WithdrawSingleTokenTypeExactAmountOut）
+            // •	只提取 TokenA 或 TokenB，销毁 LP 代币（单边提取）。
+            // •	destination_token_amount：用户希望取出的 TokenA 或 TokenB 数量。
+            // •	maximum_pool_token_amount：用户最多愿意销毁的 LP 代币数量（防止滑点过高）。
+            // •	由 process_withdraw_single_token_type_exact_amount_out 处理计算与提款逻辑。
             SwapInstruction::WithdrawSingleTokenTypeExactAmountOut(
                 WithdrawSingleTokenTypeExactAmountOut {
                     destination_token_amount,

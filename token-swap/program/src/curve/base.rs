@@ -27,12 +27,18 @@ use {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CurveType {
+    //常量类型类似Uniswap的AMM
     /// Uniswap-style constant product curve, invariant = token_a_amount *
-    /// token_b_amount
+    /// token_b_amount    
     ConstantProduct,
-    /// Flat line, always providing 1:1 from one token to another
+    /// Flat line, always providing 1:1 from one token to another 稳定币形式
     ConstantPrice,
     /// Offset curve, like Uniswap, but the token B side has a faked offset
+    /// 	Offset（偏移）：
+	// •	描述：类似于恒定乘积曲线，但在其中一侧（通常是 token_b）引入一个偏移量。
+	// •	特点：通过人为设置的偏移量，调整初始价格或流动性分布。
+	// •	应用场景：适用于需要自定义初始价格或流动性的代币对。
+
     Offset,
 }
 
@@ -62,6 +68,7 @@ pub struct SwapCurve {
     pub curve_type: CurveType,
     /// The actual calculator, represented as a trait object to allow for many
     /// different types of curves
+    /// swap 计算器，类似uniswap的 swap library库， 可以计算使用a可以swap多少b；
     pub calculator: Arc<dyn CurveCalculator + Sync + Send>,
 }
 
