@@ -101,6 +101,15 @@ impl SwapVersion {
 }
 
 /// Program states.
+/// SwapV1 结构体定义了 Solana AMM 交易池的核心状态：
+// 	1.	流动性池状态（is_initialized）
+// 	2.	PDA 计算参数（bump_seed）
+// 	3.	交易代币信息（token_a、token_b、token_a_mint、token_b_mint）
+// 	4.	流动性池代币（LP Token）管理（pool_mint）
+// 	5.	费用收取账户（pool_fee_account）
+// 	6.	交易费用结构（fees）
+// 	7.	流动性池交易曲线（swap_curve）
+// 这个结构体在 Solana Token Swap 过程中起到了 存储和管理整个 AMM 交易池的作用，并确保 交易安全性和一致性。
 #[repr(C)]
 #[derive(Debug, Default, PartialEq)]
 pub struct SwapV1 {

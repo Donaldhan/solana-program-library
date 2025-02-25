@@ -19,6 +19,11 @@ use {
 /// Since this struct needs to be created at compile-time, we only have access
 /// to const functions and constructors. Since SwapCurve contains a Arc, it
 /// cannot be used, so we have to split the curves based on their types.
+/// SwapConstraints 用于 多前端环境，防止不同前端的 Swap 交易采用不同的手续费和曲线规则，保证协议的一致性和安全性：
+// 	1.	owner_key：指定合约所有者（可选）。
+// 	2.	valid_curve_types：限制使用的 Swap 曲线，防止恶意曲线攻击。
+// 	3.	fees：固定手续费，避免前端篡改费用绕过合约规则。
+// 它的主要作用是 强制 Swap 交易符合预定义的费用和曲线标准，增强安全性和公平性。
 pub struct SwapConstraints<'a> {
     /// Owner of the program
     pub owner_key: Option<&'a str>,
@@ -30,6 +35,11 @@ pub struct SwapConstraints<'a> {
 
 impl<'a> SwapConstraints<'a> {
     /// Checks that the provided curve is valid for the given constraints
+    /// validate_curve 确保 Swap 交易只能使用合约预设的流动性曲线，防止攻击者或不同前端擅自修改曲线类型，影响交易安全性：
+	// 1.	遍历 valid_curve_types，检查 swap_curve.curve_type 是否在允许列表中。
+	// 2.	如果曲线合法，返回 Ok(())，允许交易。
+	// 3.	如果曲线不合法，返回 SwapError::UnsupportedCurveType，拒绝交易。
+	// 4.	防止前端绕过曲线约束，确保一致性和安全性。
     pub fn validate_curve(&self, swap_curve: &SwapCurve) -> Result<(), ProgramError> {
         if self
             .valid_curve_types
