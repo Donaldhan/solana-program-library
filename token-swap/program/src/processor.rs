@@ -130,6 +130,12 @@ impl Processor {
     }
 
     /// Issue a spl_token `MintTo` instruction.
+    /// 	该函数 使用 PDA (Program Derived Address) 作为 mint 账户的 authority 来铸造 SPL 代币。
+    // •	核心步骤：
+    // 1.	计算 PDA 签名种子 (swap_bytes + bump_seed)。
+    // 2.	通过 spl_token_2022::instruction::mint_to 构造 MintTo 指令。
+    // 3.	使用 invoke_signed_wrapper 调用该指令，并使用 PDA 进行授权签名。
+    // •	适用于 自动化代币铸造场景，如 AMM (自动做市商)、稳定币协议、流动性质押等。
     pub fn token_mint_to<'a>(
         swap: &Pubkey,
         token_program: AccountInfo<'a>,
@@ -244,6 +250,18 @@ impl Processor {
     }
 
     /// Processes an [Initialize](enum.Instruction.html).
+    /// process_initialize 主要用于 初始化一个 Swap (流动性池) 交易合约，它属于 Solana 上的去中心化交易 (DEX) 或流动性池 (AMM, Automated Market Maker) 逻辑，符合 SPL Token 交换协议。
+    // 它的作用是：
+    // 1.	验证账户信息（确保账户权限和初始状态正确）。
+    // 2.	验证交易对（token A 和 token B）是否有效，并检查流动性池是否已初始化。
+    // 3.	计算并铸造流动性池 (LP) 代币，用于代表流动性提供者的权益。
+    // 4.	存储流动性池的 Swap 信息，供后续交换交易使用。
+
+    // •	program_id：当前合约的 ID，确保调用的是正确的合约。
+    // •	fees：用于设置 Swap 手续费，比如流动性提供者 (LP) 费用、协议费用等。
+    // •	swap_curve：用于控制 Swap 交易价格的数学模型，通常是 恒定乘积曲线 (x * y = k) 或其他曲线模型。
+    // •	accounts：包含多个账户（Swap 账户、授权账户、代币账户、流动性池账户等）。
+    // •	swap_constraints (可选)：用于限制某些 Swap 规则，例如允许的交易对或费用上限。
     pub fn process_initialize(
         program_id: &Pubkey,
         fees: Fees,
@@ -251,6 +269,13 @@ impl Processor {
         accounts: &[AccountInfo],
         swap_constraints: &Option<SwapConstraints>,
     ) -> ProgramResult {
+        // •	swap_info：流动性池账户（Swap 账户）。
+        // •	authority_info：Swap 合约的 PDA (Program Derived Address)，用于管理 Swap 池。
+        // •	token_a_info / token_b_info：要交换的两个代币账户 (Token A 和 Token B)。
+        // •	pool_mint_info：流动性池代币（LP 代币）账户。
+        // •	fee_account_info：Swap 交易费用账户。
+        // •	destination_info：接收流动性池代币的账户。
+        // •	pool_token_program_info：SPL 代币合约地址。
         let account_info_iter = &mut accounts.iter();
         let swap_info = next_account_info(account_info_iter)?;
         let authority_info = next_account_info(account_info_iter)?;
@@ -261,20 +286,25 @@ impl Processor {
         let destination_info = next_account_info(account_info_iter)?;
         let pool_token_program_info = next_account_info(account_info_iter)?;
 
+        // 检查 Swap 是否已被初始化
         let token_program_id = *pool_token_program_info.key;
         if SwapVersion::is_initialized(&swap_info.data.borrow()) {
             return Err(SwapError::AlreadyInUse.into());
         }
-
+        // 计算 PDA (Program Derived Address)
         let (swap_authority, bump_seed) =
             Pubkey::find_program_address(&[&swap_info.key.to_bytes()], program_id);
         if *authority_info.key != swap_authority {
             return Err(SwapError::InvalidProgramAddress.into());
         }
+        // 解析并检查代币账户
+        // 这里解析 Token A、Token B、费用账户和 LP 代币接收账户的状态。
         let token_a = Self::unpack_token_account(token_a_info, &token_program_id)?;
         let token_b = Self::unpack_token_account(token_b_info, &token_program_id)?;
         let fee_account = Self::unpack_token_account(fee_account_info, &token_program_id)?;
         let destination = Self::unpack_token_account(destination_info, &token_program_id)?;
+        // 解析并检查代币账户
+        // 解析 LP 代币 (流动性池代币) 的 Mint 账户，并检查 Mint 账户不能有 close_authority，确保它不会被关闭。
         let pool_mint = {
             let pool_mint_data = pool_mint_info.data.borrow();
             let pool_mint = Self::unpack_mint_with_extensions(
@@ -351,7 +381,7 @@ impl Processor {
         swap_curve.calculator.validate()?;
 
         let initial_amount = swap_curve.calculator.new_pool_supply();
-
+        // 计算初始的流动性池代币数量，然后铸造 LP 代币到 destination_info (通常是流动性提供者的账户)。
         Self::token_mint_to(
             swap_info.key,
             pool_token_program_info.clone(),
@@ -361,7 +391,12 @@ impl Processor {
             bump_seed,
             to_u64(initial_amount)?,
         )?;
-
+        // 保存流动性池的状态，包括：
+        // •	Token A / Token B 账户地址
+        // •	LP 代币池
+        // •	交易费率
+        // •	Swap 交易曲线
+        // •	是否已初始化
         let obj = SwapVersion::SwapV1(SwapV1 {
             is_initialized: true,
             bump_seed,

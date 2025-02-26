@@ -69,6 +69,15 @@ impl SwapVersion {
     pub const LATEST_LEN: usize = 1 + SwapV1::LEN; // add one for the version enum
 
     /// Pack a swap into a byte array, based on its version
+    /// 方法的核心作用是：
+    // 	•	将 SwapV1 结构体转换为可存储的 u8 数组。
+    // 	•	支持未来扩展（如果有新版本 SwapV2，可以通过 dst[0] 识别并处理不同版本）。
+
+    // 在 Solana 智能合约中，账户的数据存储方式通常是 u8 数组，所以 pack 方法就是 一个自定义的序列化逻辑。
+    /// 	1.	dst[0] = 1;
+    // •	标记 Swap 版本号，用于未来升级兼容性（如果以后有 SwapV2、SwapV3，可以用 dst[0] 区分）。
+    // 2.	SwapV1::pack(swap_info, &mut dst[1..])
+    // •	调用 SwapV1::pack 方法，将 swap_info（SwapV1 结构体）转换为 byte array，并存入 dst[1..]。
     pub fn pack(src: Self, dst: &mut [u8]) -> Result<(), ProgramError> {
         match src {
             Self::SwapV1(swap_info) => {
