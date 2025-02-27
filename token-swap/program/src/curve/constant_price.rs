@@ -30,14 +30,21 @@ pub fn trading_tokens_to_pool_tokens(
     round_direction: RoundDirection,
 ) -> Option<u128> {
     let token_b_price = U256::from(token_b_price);
+    // 计算存入代币的总价值
     let given_value = match trade_direction {
+        // 如果用户存入的是 Token A，那么 given_value = source_amount（直接使用数量）。
         TradeDirection::AtoB => U256::from(source_amount),
+        // 如果用户存入的是 Token B，由于 Token B 需要换算成 Token A 价值：
         TradeDirection::BtoA => U256::from(source_amount).checked_mul(token_b_price)?,
     };
+    // 计算池子里（Token A + Token B）的总价值，全部 Token A 和 Token B 转换为 Token A 计价后的总价值。
     let total_value = U256::from(swap_token_b_amount)
         .checked_mul(token_b_price)?
         .checked_add(U256::from(swap_token_a_amount))?;
     let pool_supply = U256::from(pool_supply);
+    // •	这是一个 线性比例公式，表示用户的存款占整个池子总价值的比例，然后按照这个比例给用户分配 LP 代币。
+    // •	checked_div()：执行整除运算（向下取整）。
+    // •	checked_ceil_div()：执行向上取整的整除运算，确保计算不会因小数丢失导致用户获得的 LP 代币不足。
     match round_direction {
         RoundDirection::Floor => Some(
             pool_supply
@@ -65,10 +72,10 @@ pub struct ConstantPriceCurve {
 impl CurveCalculator for ConstantPriceCurve {
     /// Constant price curve always returns 1:1
     /// 这个 swap_without_fees 函数计算了代币交换的过程，具体步骤如下：
-	// 1.	根据交易方向（BtoA 或 AtoB），计算交换后的源代币和目标代币数量。
-	// 2.	对于 AtoB 交易方向，如果有余数，则向下取整源代币数量，以避免多扣除源代币。
-	// 3.	使用 map_zero_to_none 处理零值，确保没有实际交换的情况下返回 None。
-	// 4.	返回包含交换结果的 SwapWithoutFeesResult 对象。
+    // 1.	根据交易方向（BtoA 或 AtoB），计算交换后的源代币和目标代币数量。
+    // 2.	对于 AtoB 交易方向，如果有余数，则向下取整源代币数量，以避免多扣除源代币。
+    // 3.	使用 map_zero_to_none 处理零值，确保没有实际交换的情况下返回 None。
+    // 4.	返回包含交换结果的 SwapWithoutFeesResult 对象。
 
     fn swap_without_fees(
         &self,
@@ -80,7 +87,6 @@ impl CurveCalculator for ConstantPriceCurve {
         let token_b_price = self.token_b_price as u128;
 
         let (source_amount_swapped, destination_amount_swapped) = match trade_direction {
-            
             TradeDirection::BtoA => (source_amount, source_amount.checked_mul(token_b_price)?),
             TradeDirection::AtoB => {
                 let destination_amount_swapped = source_amount.checked_div(token_b_price)?;
@@ -119,6 +125,9 @@ impl CurveCalculator for ConstantPriceCurve {
         swap_token_b_amount: u128,
         round_direction: RoundDirection,
     ) -> Option<TradingTokenResult> {
+        // self.token_b_price as u128：获取代币 B 的价格，通常它是一个浮动的值（例如单位价格），但在这里它被转换为 u128 类型，用于后续计算。
+        // •	normalized_value(swap_token_a_amount, swap_token_b_amount)：这是一个调用了 normalized_value 方法的操作，该方法计算代币 A 和代币 B 在池中的加权值。这个方法返回一个值，它是经过规范化的池内资产的价值。
+        // •	.to_imprecise()?：将规范化的值转化为不太精确的值。可能涉及到浮动或舍入，但要注意，这一方法的细节没有给出。
         let token_b_price = self.token_b_price as u128;
         let total_value = self
             .normalized_value(swap_token_a_amount, swap_token_b_amount)?
@@ -135,6 +144,7 @@ impl CurveCalculator for ConstantPriceCurve {
                     .checked_div(pool_token_supply)?;
                 (token_a_amount, token_b_amount)
             }
+            // 向上取整 (Ceiling)
             RoundDirection::Ceiling => {
                 let (token_a_amount, _) = pool_tokens
                     .checked_mul(total_value)?
@@ -174,7 +184,7 @@ impl CurveCalculator for ConstantPriceCurve {
             RoundDirection::Floor,
         )
     }
-
+    // withdraw_single_token_type_exact_out 计算取款时销毁的 LP 代币
     fn withdraw_single_token_type_exact_out(
         &self,
         source_amount: u128,
@@ -224,15 +234,21 @@ impl CurveCalculator for ConstantPriceCurve {
         swap_token_a_amount: u128,
         swap_token_b_amount: u128,
     ) -> Option<PreciseNumber> {
+        // 计算代币 B 的总价值
         let swap_token_b_value = swap_token_b_amount.checked_mul(self.token_b_price as u128)?;
         // special logic in case we're close to the limits, avoid overflowing u128
         let value = if swap_token_b_value.saturating_sub(u64::MAX.into())
             > (u128::MAX.saturating_sub(u64::MAX.into()))
         {
+            //         这段代码是为了防止在数值接近 u128::MAX 时溢出（因为 u128::MAX 是一个非常大的值，直接操作可能导致溢出），所以做了一些特殊处理：
+            // •	swap_token_b_value.saturating_sub(u64::MAX.into())：首先检查 swap_token_b_value 是否接近 u128::MAX 的限制。
+            // 如果 swap_token_b_value 减去 u64::MAX 后的值大于剩余的最大可用空间（u128::MAX - u64::MAX），则执行特别的处理。
+            // •	checked_div(2) 和 checked_add：为了避免溢出，先将 swap_token_b_value 和 swap_token_a_amount 分别除以 2，然后再相加，确保不会超过 u128::MAX。
             swap_token_b_value
                 .checked_div(2)?
                 .checked_add(swap_token_a_amount.checked_div(2)?)?
         } else {
+            // 否则：如果数值没有接近溢出限制，则直接将代币 A 和代币 B 的值相加，并将总和除以 2（即取平均值），得到池内资产的“规范化值”。
             swap_token_a_amount
                 .checked_add(swap_token_b_value)?
                 .checked_div(2)?

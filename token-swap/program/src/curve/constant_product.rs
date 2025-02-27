@@ -65,6 +65,10 @@ pub fn swap(
 ///
 /// The constant product implementation is a simple ratio calculation for how
 /// many trading tokens correspond to a certain number of pool tokens
+/// 用于根据池代币数量、池代币供应量、交换池中代币的数量，以及四舍五入的方向，
+/// 将池代币转换为交易代币的数量（即，计算从流动性池中提取多少代币）。函数返回一个 Option<TradingTokenResult>，
+/// 如果计算成功，则返回包含代币 A 和代币 B 数量的 TradingTokenResult，否则返回 None。
+
 pub fn pool_tokens_to_trading_tokens(
     pool_tokens: u128,
     pool_token_supply: u128,
@@ -72,6 +76,11 @@ pub fn pool_tokens_to_trading_tokens(
     swap_token_b_amount: u128,
     round_direction: RoundDirection,
 ) -> Option<TradingTokenResult> {
+    // •	计算过程：
+	// •	对于代币 A，首先计算池代币与池中代币 A 数量的比例：pool_tokens * swap_token_a_amount / pool_token_supply。这表示根据用户请求的池代币数量，计算出相应的代币 A 数量。
+	// •	对于代币 B，执行相同的计算过程：pool_tokens * swap_token_b_amount / pool_token_supply。
+	// •	checked_mul 和 checked_div：这两个方法用于安全地执行乘法和除法运算。如果发生溢出或除以零等错误，checked_mul 和 checked_div 会返回 None，导致整个计算提前终止，返回 None。
+
     let mut token_a_amount = pool_tokens
         .checked_mul(swap_token_a_amount)?
         .checked_div(pool_token_supply)?;
@@ -143,6 +152,27 @@ pub fn deposit_single_token_type(
 /// The constant product implementation uses the Balancer formulas found at
 /// <https://balancer.finance/whitepaper/#single-asset-withdrawal>, specifically
 /// in the case for 2 tokens, each weighted at 1/2.
+/// 作用
+// 	•	该函数用于计算用户精确提取某种代币时，需要销毁的 LP 代币数量。
+// 	•	由于 AMM 公式的影响，LP 代币的计算是非线性的，因此需要使用平方根调整比例。
+
+// 计算步骤
+// 	1.	确定提取的代币类型（Token A 或 Token B）。
+// 	2.	计算提取数量占池子的比例 ratio = 提取数量 / 池子总量。
+// 	3.	计算 LP 代币销毁数量：
+// 	•	计算 1 - ratio
+// 	•	取平方根进行非线性调整
+// 	•	乘以 pool_supply 计算最终 LP 代币销毁量
+// 	4.	根据 round_direction 进行取整：
+// 	•	Floor：向下取整
+// 	•	Ceiling：向上取整
+// 为什么用平方根？
+// 	•	AMM 采用 x * y = k 公式，因此 LP 代币的计算是非线性的。
+// 	•	取款影响池子余额，导致 LP 代币的比例变化不是线性关系，需要平方根调整。
+
+// 优化点
+// 	•	由于 sqrt 计算相对耗时，可通过 二分法近似计算 提高效率。
+// 	•	checked_* 方式确保了数值不会溢出，提高安全性。
 pub fn withdraw_single_token_type_exact_out(
     source_amount: u128,
     swap_token_a_amount: u128,
@@ -157,7 +187,15 @@ pub fn withdraw_single_token_type_exact_out(
     };
     let swap_source_amount = PreciseNumber::new(swap_source_amount)?;
     let source_amount = PreciseNumber::new(source_amount)?;
+    // ratio = source_amount / swap_source_amount，表示用户想提取的数量占池子里该代币总量的比例。
     let ratio = source_amount.checked_div(&swap_source_amount)?;
+    // 这部分核心逻辑：
+	// 1.	计算 base = 1 - ratio，表示池子里剩余代币的比例。
+	// 2.	计算 root = 1 - sqrt(base)：
+	// •	由于 AMM 采用乘积恒定公式（x * y = k），LP 代币的计算方式是非线性的，需要使用平方根函数来调整比例。
+	// 3.	计算 pool_tokens = pool_supply * root：
+	// •	这里 root 代表池子 LP 代币的变化比例，因此 pool_supply * root 计算了需要销毁的 LP 代币数量。
+
     let one = PreciseNumber::new(1)?;
     let base = one
         .checked_sub(&ratio)

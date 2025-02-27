@@ -100,6 +100,10 @@ impl Processor {
     }
 
     /// Issue a spl_token `Burn` instruction.
+    /// 这个 token_burn 函数实现了一个代币燃烧操作，即从指定的账户（burn_account）销毁一定数量的代币。具体步骤如下：
+	// 1.	生成与交换合约相关的签名密钥（authority_signature_seeds）。
+	// 2.	创建燃烧指令，指定销毁代币的账户、代币铸造账户和授权账户。
+	// 3.	使用 invoke_signed_wrapper 执行燃烧操作，并确保燃烧操作得到授权。
     pub fn token_burn<'a>(
         swap: &Pubkey,
         token_program: AccountInfo<'a>,
@@ -109,10 +113,11 @@ impl Processor {
         bump_seed: u8,
         amount: u64,
     ) -> Result<(), ProgramError> {
+        // 生成签名密钥
         let swap_bytes = swap.to_bytes();
         let authority_signature_seeds = [&swap_bytes[..32], &[bump_seed]];
         let signers = &[&authority_signature_seeds[..]];
-
+        // 创建燃烧指令
         let ix = spl_token_2022::instruction::burn(
             token_program.key,
             burn_account.key,
@@ -166,14 +171,14 @@ impl Processor {
     // 通过 SPL Token 进行代币转账的功能，使用了 spl_token_2022 库中的 transfer_checked 指令。具体功能是发起一个转账请求，并使用 invoke_signed_wrapper 进行签名验证
     /// Issue a spl_token `Transfer` instruction.
     /// 	•	swap: &Pubkey：表示交换合约的公钥。
-	// •	token_program: AccountInfo<'a>：表示代币程序的账户信息。
-	// •	source: AccountInfo<'a>：表示源账户，即从中转出代币的账户。
-	// •	mint: AccountInfo<'a>：表示代币的 mint 地址（代币的类型标识符）。
-	// •	destination: AccountInfo<'a>：目标账户，即接收代币的账户。
-	// •	authority: AccountInfo<'a>：代币转账的授权账户，一般是 swap 合约的签名者。
-	// •	bump_seed: u8：用于生成签名授权种子的 bump，是为了确保合约账户签名的唯一性。
-	// •	amount: u64：要转账的代币数量。
-	// •	decimals: u8：代币的精度（即每个代币的最小单位的位数）。
+    // •	token_program: AccountInfo<'a>：表示代币程序的账户信息。
+    // •	source: AccountInfo<'a>：表示源账户，即从中转出代币的账户。
+    // •	mint: AccountInfo<'a>：表示代币的 mint 地址（代币的类型标识符）。
+    // •	destination: AccountInfo<'a>：目标账户，即接收代币的账户。
+    // •	authority: AccountInfo<'a>：代币转账的授权账户，一般是 swap 合约的签名者。
+    // •	bump_seed: u8：用于生成签名授权种子的 bump，是为了确保合约账户签名的唯一性。
+    // •	amount: u64：要转账的代币数量。
+    // •	decimals: u8：代币的精度（即每个代币的最小单位的位数）。
     #[allow(clippy::too_many_arguments)]
     pub fn token_transfer<'a>(
         swap: &Pubkey,
@@ -193,15 +198,15 @@ impl Processor {
         // •	signers：是包含签名种子的数组，invoke_signed 函数用它来验证交易是否由授权者签署。
         // •	签名验证：通过验证签名和交易数据的完整性，Solana 确保了每个交易的合法性和安全性。
         let signers = &[&authority_signature_seeds[..]];
-    //     spl_token_2022::instruction::transfer_checked：构建一个 transfer_checked 指令，它是 SPL Token 2022 版的转账指令。
-	// •	token_program.key：代币程序的公钥。
-	// •	source.key：源账户的公钥。
-	// •	mint.key：代币 mint 的公钥。
-	// •	destination.key：目标账户的公钥。
-	// •	authority.key：授权账户的公钥。
-	// •	[]：空的签名数组，意味着没有额外的签名。
-	// •	amount：要转账的金额。
-	// •	decimals：代币的精度。
+        //     spl_token_2022::instruction::transfer_checked：构建一个 transfer_checked 指令，它是 SPL Token 2022 版的转账指令。
+        // •	token_program.key：代币程序的公钥。
+        // •	source.key：源账户的公钥。
+        // •	mint.key：代币 mint 的公钥。
+        // •	destination.key：目标账户的公钥。
+        // •	authority.key：授权账户的公钥。
+        // •	[]：空的签名数组，意味着没有额外的签名。
+        // •	amount：要转账的金额。
+        // •	decimals：代币的精度。
         let ix = spl_token_2022::instruction::transfer_checked(
             token_program.key,
             source.key,
@@ -216,7 +221,7 @@ impl Processor {
         // •	&ix：代币转账指令。
         // •	[source, mint, destination, authority, token_program]：参与交易的账户列表，必须是传入的账户信息。
         // •	signers：签名者信息，使用签名种子来验证交易。
-    
+
         invoke_signed_wrapper::<TokenError>(
             &ix,
             &[source, mint, destination, authority, token_program],
@@ -258,6 +263,8 @@ impl Processor {
         if *pool_token_program_info.key != *token_swap.token_program_id() {
             return Err(SwapError::IncorrectTokenProgramId.into());
         }
+        // •	如果传入了 user_token_a_info 或 user_token_b_info，检查这些账户是否与 token_a_info 或 token_b_info 匹配。
+        // •	如果是相同的账户，返回错误 InvalidInput，表示用户不应将自己持有的代币账户作为存入账户。
         if let Some(user_token_a_info) = user_token_a_info {
             if token_a_info.key == user_token_a_info.key {
                 return Err(SwapError::InvalidInput.into());
@@ -649,6 +656,7 @@ impl Processor {
         )?;
         // 计算协议费用，并可能分配给流动性提供者。
         if result.owner_fee > 0 {
+            // 计算所有者手续费的 Pool Token 数量
             let mut pool_token_amount = token_swap
                 .swap_curve()
                 .calculator
@@ -662,6 +670,7 @@ impl Processor {
                 )
                 .ok_or(SwapError::FeeCalculationFailure)?;
             // Allow error to fall through
+            // 计算并分配 Host Fee
             if let Ok(host_fee_account_info) = next_account_info(account_info_iter) {
                 let host_fee_account = Self::unpack_token_account(
                     host_fee_account_info,
@@ -674,6 +683,7 @@ impl Processor {
                     .fees()
                     .host_fee(pool_token_amount)
                     .ok_or(SwapError::FeeCalculationFailure)?;
+                // 减少 Owner Fee 并铸造 Host Fee
                 if host_fee > 0 {
                     pool_token_amount = pool_token_amount
                         .checked_sub(host_fee)
@@ -689,6 +699,7 @@ impl Processor {
                     )?;
                 }
             }
+            // 计算并分配 Pool Fee
             if token_swap
                 .check_pool_fee_info(pool_fee_account_info)
                 .is_ok()
@@ -721,6 +732,14 @@ impl Processor {
     }
 
     /// Processes an [DepositAllTokenTypes](enum.Instruction.html).
+    /// process_deposit_all_token_types 函数用于处理用户将两种不同类型的代币（代币 A 和代币 B）存入流动性池。
+    /// 它计算存入的代币数量，检查滑点（slippage），进行代币转账，并铸造池代币（代表用户在流动性池中的份额）。
+    // 参数说明：
+    // •	program_id: 部署的程序的公钥。
+    // •	pool_token_amount: 用户希望存入的池代币（LP 代币）数量。
+    // •	maximum_token_a_amount: 用户愿意存入的最大代币 A 数量。
+    // •	maximum_token_b_amount: 用户愿意存入的最大代币 B 数量。
+    // •	accounts: 一个包含所需账户信息的数组。
     pub fn process_deposit_all_token_types(
         program_id: &Pubkey,
         pool_token_amount: u64,
@@ -728,6 +747,14 @@ impl Processor {
         maximum_token_b_amount: u64,
         accounts: &[AccountInfo],
     ) -> ProgramResult {
+        // •	swap_info: 存储交换合约信息。
+        // •	authority_info: 存储授权信息（如拥有流动性池的账户）。
+        // •	user_transfer_authority_info: 存储用户的转账授权账户。
+        // •	source_a_info, source_b_info: 存储代币 A 和代币 B 的源账户信息。
+        // •	token_a_info, token_b_info: 存储代币 A 和代币 B 的目标账户信息。
+        // •	pool_mint_info: 存储池代币的 mint 信息。
+        // •	dest_info: 存储目标账户的信息（池代币的接收方）。
+        // •	其他几个账户信息涉及代币 mint 和程序的具体实现。
         let account_info_iter = &mut accounts.iter();
         let swap_info = next_account_info(account_info_iter)?;
         let authority_info = next_account_info(account_info_iter)?;
@@ -744,11 +771,14 @@ impl Processor {
         let token_b_program_info = next_account_info(account_info_iter)?;
         let pool_token_program_info = next_account_info(account_info_iter)?;
 
+        // 解包交换信息和校验支持存款操作
         let token_swap = SwapVersion::unpack(&swap_info.data.borrow())?;
         let calculator = &token_swap.swap_curve().calculator;
         if !calculator.allows_deposits() {
             return Err(SwapError::UnsupportedCurveOperation.into());
         }
+
+        // 账户信息验证
         Self::check_accounts(
             token_swap.as_ref(),
             program_id,
@@ -763,16 +793,22 @@ impl Processor {
             None,
         )?;
 
+        // 解包代币账户和池代币信息
         let token_a = Self::unpack_token_account(token_a_info, token_swap.token_program_id())?;
         let token_b = Self::unpack_token_account(token_b_info, token_swap.token_program_id())?;
         let pool_mint = Self::unpack_mint(pool_mint_info, token_swap.token_program_id())?;
         let current_pool_mint_supply = u128::from(pool_mint.supply);
+        // 计算新池代币供应量
+        //     •	已有池：如果池代币已经存在（current_pool_mint_supply > 0），则使用用户希望存入的 pool_token_amount 作为新存入的池代币数量，并保持现有的池代币总供应量。
+        //     •	新池：如果池代币尚不存在（current_pool_mint_supply <= 0），则为新池生成初始池代币数量和总供应量，通常通过计算器方法 calculator.new_pool_supply() 来决定这些值。
+
+        // 这样设计的目的是为了在已有流动性池的情况下，按比例增加池代币供应量；而在新建池的情况下，生成一个合理的初始池代币供应量。
         let (pool_token_amount, pool_mint_supply) = if current_pool_mint_supply > 0 {
             (u128::from(pool_token_amount), current_pool_mint_supply)
         } else {
             (calculator.new_pool_supply(), calculator.new_pool_supply())
         };
-
+        // 计算应得的代币数量
         let results = calculator
             .pool_tokens_to_trading_tokens(
                 pool_token_amount,
@@ -783,6 +819,7 @@ impl Processor {
             )
             .ok_or(SwapError::ZeroTradingTokens)?;
         let token_a_amount = to_u64(results.token_a_amount)?;
+        // 滑点检查
         if token_a_amount > maximum_token_a_amount {
             return Err(SwapError::ExceededSlippage.into());
         }
@@ -798,7 +835,7 @@ impl Processor {
         }
 
         let pool_token_amount = to_u64(pool_token_amount)?;
-
+        // 执行代币转账和池代币铸造
         Self::token_transfer(
             swap_info.key,
             token_a_program_info.clone(),
@@ -821,6 +858,7 @@ impl Processor {
             token_b_amount,
             Self::unpack_mint(token_b_mint_info, token_swap.token_program_id())?.decimals,
         )?;
+        // 使用 Self::token_mint_to 铸造池代币，并将其发送到目标账户。
         Self::token_mint_to(
             swap_info.key,
             pool_token_program_info.clone(),
@@ -835,6 +873,10 @@ impl Processor {
     }
 
     /// Processes an [WithdrawAllTokenTypes](enum.Instruction.html).
+    /// 	•	该函数的目标是处理用户通过池代币提取交易池中代币 A 和代币 B 的操作。
+	// •	在提现过程中，考虑了提现费用、池代币的销毁、代币的转移以及最小金额限制等多个因素。
+	// •	通过 check_accounts 方法验证所有账户的合法性，确保操作的正确性。
+	// •	涉及了池代币、交易代币之间的复杂计算，特别是如何根据池代币数量计算对应的交易代币数量。
     pub fn process_withdraw_all_token_types(
         program_id: &Pubkey,
         pool_token_amount: u64,
@@ -842,6 +884,7 @@ impl Processor {
         minimum_token_b_amount: u64,
         accounts: &[AccountInfo],
     ) -> ProgramResult {
+        // 初始化账户信息
         let account_info_iter = &mut accounts.iter();
         let swap_info = next_account_info(account_info_iter)?;
         let authority_info = next_account_info(account_info_iter)?;
@@ -860,6 +903,7 @@ impl Processor {
         let token_b_program_info = next_account_info(account_info_iter)?;
 
         let token_swap = SwapVersion::unpack(&swap_info.data.borrow())?;
+        // 检查账户的合法性
         Self::check_accounts(
             token_swap.as_ref(),
             program_id,
@@ -879,7 +923,7 @@ impl Processor {
         let pool_mint = Self::unpack_mint(pool_mint_info, token_swap.token_program_id())?;
 
         let calculator = &token_swap.swap_curve().calculator;
-
+        // 计算提现费
         let withdraw_fee = match token_swap.check_pool_fee_info(pool_fee_account_info) {
             Ok(_) => {
                 if *pool_fee_account_info.key == *source_info.key {
@@ -894,10 +938,11 @@ impl Processor {
             }
             Err(_) => 0,
         };
+        // 根据计算出的提现费用调整用户请求提现的池代币数量，确保提现费用已经从池代币数量中扣除。
         let pool_token_amount = u128::from(pool_token_amount)
             .checked_sub(withdraw_fee)
             .ok_or(SwapError::CalculationFailure)?;
-
+        // 使用池代币数量、池代币供应量以及当前池内代币 A 和代币 B 的数量，利用交换曲线（calculator）来计算应该提现的代币 A 和代币 B 的数量。
         let results = calculator
             .pool_tokens_to_trading_tokens(
                 pool_token_amount,
@@ -907,6 +952,10 @@ impl Processor {
                 RoundDirection::Floor,
             )
             .ok_or(SwapError::ZeroTradingTokens)?;
+
+        // 通过 to_u64 将计算结果转换为 u64，并确保计算的提现数量不小于用户设置的最小值（minimum_token_a_amount 和 minimum_token_b_amount）。
+        // 如果满足条件，继续执行，否则返回错误。
+
         let token_a_amount = to_u64(results.token_a_amount)?;
         let token_a_amount = std::cmp::min(token_a.amount, token_a_amount);
         if token_a_amount < minimum_token_a_amount {
@@ -923,7 +972,7 @@ impl Processor {
         if token_b_amount == 0 && token_b.amount != 0 {
             return Err(SwapError::ZeroTradingTokens.into());
         }
-
+        // 如果提现费用大于 0，则将提现费用从用户账户转移到费用账户。
         if withdraw_fee > 0 {
             Self::token_transfer(
                 swap_info.key,
@@ -937,6 +986,7 @@ impl Processor {
                 pool_mint.decimals,
             )?;
         }
+        // 销毁池代币，即从用户账户中扣除相应数量的池代币。
         Self::token_burn(
             swap_info.key,
             pool_token_program_info.clone(),
@@ -946,7 +996,7 @@ impl Processor {
             token_swap.bump_seed(),
             to_u64(pool_token_amount)?,
         )?;
-
+        // 如果有代币 A 和代币 B 需要提取，则将其从池中转移到目标账户。
         if token_a_amount > 0 {
             Self::token_transfer(
                 swap_info.key,
