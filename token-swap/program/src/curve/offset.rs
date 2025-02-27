@@ -40,6 +40,14 @@ impl CurveCalculator for OffsetCurve {
     ///
     /// If the offset and token B are both close to u64::MAX, there can be
     /// overflow errors with the invariant.
+    /// 整体逻辑
+    // 	1.	根据交易方向调整数量：
+    // 	•	如果是从 A 到 B (TradeDirection::AtoB)，则源代币和目标代币的数量保持原样或进行适当的调整。
+    // 	•	如果是从 B 到 A (TradeDirection::BtoA)，则源代币和目标代币的数量需要加上 token_b_offset。
+    // 	2.	调用 swap 函数：
+    // 	•	在调整了数量之后，调用 swap 函数来执行实际的交换操作，返回一个 SwapWithoutFeesResult，包含交换结果。
+    // 使用场景
+    // 这种逻辑通常用于去中心化交易所（DEX）或智能合约的代币交换功能，其中可能需要处理交易的方向和某些额外的调整（比如手续费或偏移量）。token_b_offset 可能代表一个调整值，例如一个固定的奖励、滑点调整，或者是其他交易机制的影响。
     fn swap_without_fees(
         &self,
         source_amount: u128,

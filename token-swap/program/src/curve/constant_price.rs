@@ -64,6 +64,12 @@ pub struct ConstantPriceCurve {
 
 impl CurveCalculator for ConstantPriceCurve {
     /// Constant price curve always returns 1:1
+    /// 这个 swap_without_fees 函数计算了代币交换的过程，具体步骤如下：
+	// 1.	根据交易方向（BtoA 或 AtoB），计算交换后的源代币和目标代币数量。
+	// 2.	对于 AtoB 交易方向，如果有余数，则向下取整源代币数量，以避免多扣除源代币。
+	// 3.	使用 map_zero_to_none 处理零值，确保没有实际交换的情况下返回 None。
+	// 4.	返回包含交换结果的 SwapWithoutFeesResult 对象。
+
     fn swap_without_fees(
         &self,
         source_amount: u128,
@@ -74,6 +80,7 @@ impl CurveCalculator for ConstantPriceCurve {
         let token_b_price = self.token_b_price as u128;
 
         let (source_amount_swapped, destination_amount_swapped) = match trade_direction {
+            
             TradeDirection::BtoA => (source_amount, source_amount.checked_mul(token_b_price)?),
             TradeDirection::AtoB => {
                 let destination_amount_swapped = source_amount.checked_div(token_b_price)?;
@@ -82,6 +89,7 @@ impl CurveCalculator for ConstantPriceCurve {
                 // if there is a remainder from buying token B, floor
                 // token_a_amount to avoid taking too many tokens, but
                 // don't recalculate the fees
+                // 如果在从 A 转换到 B 时，源代币 A 数量除以目标代币 B 的价格时有余数（即无法完全换成目标代币 B），那么我们会将源代币 A 的数量向下取整，去掉余数。
                 let remainder = source_amount_swapped.checked_rem(token_b_price)?;
                 if remainder > 0 {
                     source_amount_swapped = source_amount.checked_sub(remainder)?;
@@ -90,6 +98,7 @@ impl CurveCalculator for ConstantPriceCurve {
                 (source_amount_swapped, destination_amount_swapped)
             }
         };
+        // 这里使用了一个名为 map_zero_to_none 的辅助函数（假设是自定义的），用于将零值转换为 None。即如果交换后的源代币或目标代币数量为 0，则返回 None，表示没有实际的交换发生。
         let source_amount_swapped = map_zero_to_none(source_amount_swapped)?;
         let destination_amount_swapped = map_zero_to_none(destination_amount_swapped)?;
         Some(SwapWithoutFeesResult {

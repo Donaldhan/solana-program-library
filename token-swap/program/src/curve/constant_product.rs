@@ -24,6 +24,21 @@ pub struct ConstantProductCurve;
 /// This is guaranteed to work for all values such that:
 ///  - 1 <= swap_source_amount * swap_destination_amount <= u128::MAX
 ///  - 1 <= source_amount <= u64::MAX
+/// 	•	source_amount: u128: 这是要交换的源代币数量。
+// •	swap_source_amount: u128: 这是交易池中当前的源代币数量。
+// •	swap_destination_amount: u128: 这是交易池中当前的目标代币数量。
+// •	返回值：Option<SwapWithoutFeesResult>，表示一个交换结果对象。Option 类型是为了处理可能失败的情况。
+
+
+// 这个 swap 函数实现了一个基于恒定乘积模型的代币交换过程，具体步骤如下：
+// 	1.	计算当前市场的恒定乘积（源代币数量 × 目标代币数量）。
+// 	2.	计算新的源代币数量，即现有源代币数量加上用户希望交换的源代币数量。
+// 	3.	根据恒定乘积和新的源代币数量计算新的目标代币数量。
+// 	4.	计算实际交换的源代币数量（新源代币数量 - 原源代币数量）。
+// 	5.	计算实际交换的目标代币数量（原目标代币数量 - 新目标代币数量）。
+// 	6.	返回交换结果对象，包括源代币和目标代币的交换数量。
+
+// 如果在任何计算过程中出现溢出或错误（例如除法失败），函数将返回 None，否则返回一个包含实际交换数量的 SwapWithoutFeesResult 对象。
 pub fn swap(
     source_amount: u128,
     swap_source_amount: u128,

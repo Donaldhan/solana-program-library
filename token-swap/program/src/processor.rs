@@ -163,8 +163,17 @@ impl Processor {
             signers,
         )
     }
-
+    // 通过 SPL Token 进行代币转账的功能，使用了 spl_token_2022 库中的 transfer_checked 指令。具体功能是发起一个转账请求，并使用 invoke_signed_wrapper 进行签名验证
     /// Issue a spl_token `Transfer` instruction.
+    /// 	•	swap: &Pubkey：表示交换合约的公钥。
+	// •	token_program: AccountInfo<'a>：表示代币程序的账户信息。
+	// •	source: AccountInfo<'a>：表示源账户，即从中转出代币的账户。
+	// •	mint: AccountInfo<'a>：表示代币的 mint 地址（代币的类型标识符）。
+	// •	destination: AccountInfo<'a>：目标账户，即接收代币的账户。
+	// •	authority: AccountInfo<'a>：代币转账的授权账户，一般是 swap 合约的签名者。
+	// •	bump_seed: u8：用于生成签名授权种子的 bump，是为了确保合约账户签名的唯一性。
+	// •	amount: u64：要转账的代币数量。
+	// •	decimals: u8：代币的精度（即每个代币的最小单位的位数）。
     #[allow(clippy::too_many_arguments)]
     pub fn token_transfer<'a>(
         swap: &Pubkey,
@@ -179,7 +188,20 @@ impl Processor {
     ) -> Result<(), ProgramError> {
         let swap_bytes = swap.to_bytes();
         let authority_signature_seeds = [&swap_bytes[..32], &[bump_seed]];
+        // signers：表示签名的数组，包含签名种子 authority_signature_seeds，用于后续验证签名。
+        // •	authority_signature_seeds：是由 swap 公钥的字节和 bump_seed 组合而成的签名种子，确保每次生成的签名都是唯一的。
+        // •	signers：是包含签名种子的数组，invoke_signed 函数用它来验证交易是否由授权者签署。
+        // •	签名验证：通过验证签名和交易数据的完整性，Solana 确保了每个交易的合法性和安全性。
         let signers = &[&authority_signature_seeds[..]];
+    //     spl_token_2022::instruction::transfer_checked：构建一个 transfer_checked 指令，它是 SPL Token 2022 版的转账指令。
+	// •	token_program.key：代币程序的公钥。
+	// •	source.key：源账户的公钥。
+	// •	mint.key：代币 mint 的公钥。
+	// •	destination.key：目标账户的公钥。
+	// •	authority.key：授权账户的公钥。
+	// •	[]：空的签名数组，意味着没有额外的签名。
+	// •	amount：要转账的金额。
+	// •	decimals：代币的精度。
         let ix = spl_token_2022::instruction::transfer_checked(
             token_program.key,
             source.key,
@@ -190,6 +212,11 @@ impl Processor {
             amount,
             decimals,
         )?;
+        // •	invoke_signed_wrapper::<TokenError>：用于执行带签名验证的交易。
+        // •	&ix：代币转账指令。
+        // •	[source, mint, destination, authority, token_program]：参与交易的账户列表，必须是传入的账户信息。
+        // •	signers：签名者信息，使用签名种子来验证交易。
+    
         invoke_signed_wrapper::<TokenError>(
             &ix,
             &[source, mint, destination, authority, token_program],
@@ -415,6 +442,12 @@ impl Processor {
     }
 
     /// Processes an [Swap](enum.Instruction.html).
+    /// 该函数 process_swap 主要负责处理代币交换请求，其核心逻辑包括：
+    // •	验证账户参数是否合法
+    // •	计算实际的交换数量（扣除转账费用）
+    // •	通过交换曲线计算最终的兑换结果
+    // •	处理交易费用（包含流动性提供者的费用及协议费）
+    // •	进行代币转移
     pub fn process_swap(
         program_id: &Pubkey,
         amount_in: u64,
@@ -437,16 +470,20 @@ impl Processor {
         let destination_token_program_info = next_account_info(account_info_iter)?;
         let pool_token_program_info = next_account_info(account_info_iter)?;
 
+        //     确保 swap_info 账户由 program_id 所管理。
+        // •	解析 swap_info 数据以获取 token_swap 结构体。
         if swap_info.owner != program_id {
             return Err(ProgramError::IncorrectProgramId);
         }
         let token_swap = SwapVersion::unpack(&swap_info.data.borrow())?;
 
+        // 检查 authority_info 是否与 swap_info 关联的授权账户匹配。
         if *authority_info.key
             != Self::authority_id(program_id, swap_info.key, token_swap.bump_seed())?
         {
             return Err(SwapError::InvalidProgramAddress.into());
         }
+        // 确保 swap_source_info 和 swap_destination_info 属于交换池。
         if !(*swap_source_info.key == *token_swap.token_a_account()
             || *swap_source_info.key == *token_swap.token_b_account())
         {
@@ -483,6 +520,8 @@ impl Processor {
         let pool_mint = Self::unpack_mint(pool_mint_info, token_swap.token_program_id())?;
 
         // Take transfer fees into account for actual amount transferred in
+        //     解析源代币的 mint 信息，检查是否有 TransferFeeConfig（即该代币是否有转账费用）。
+        // •	如果有，则计算扣除转账费后的 actual_amount_in，否则 actual_amount_in = amount_in。
         let actual_amount_in = {
             let source_mint_data = source_token_mint_info.data.borrow();
             let source_mint = Self::unpack_mint_with_extensions(
@@ -490,7 +529,9 @@ impl Processor {
                 source_token_mint_info.owner,
                 token_swap.token_program_id(),
             )?;
-
+            // 1.	尝试从 source_mint 获取转账手续费配置 (TransferFeeConfig)。
+            // 2.	如果成功获取到配置，则根据当前 epoch 和转账金额 amount_in 计算应收取的手续费，并从 amount_in 中扣除相应的手续费。
+            // 3.	如果获取手续费配置失败，则直接返回原始金额 amount_in，即不进行手续费扣除。
             if let Ok(transfer_fee_config) = source_mint.get_extension::<TransferFeeConfig>() {
                 amount_in.saturating_sub(
                     transfer_fee_config
@@ -503,11 +544,15 @@ impl Processor {
         };
 
         // Calculate the trade amounts
+        // 确定交易方向，是从 Token A 换成 Token B，还是从 Token B 换成 Token A。
         let trade_direction = if *swap_source_info.key == *token_swap.token_a_account() {
             TradeDirection::AtoB
         } else {
             TradeDirection::BtoA
         };
+        // 通过 swap_curve 计算 source_amount_swapped 和 destination_amount_swapped，即：
+        // •	交易后源代币账户的余额
+        // •	交易后目标代币账户的余额
         let result = token_swap
             .swap_curve()
             .swap(
@@ -520,6 +565,14 @@ impl Processor {
             .ok_or(SwapError::ZeroTradingTokens)?;
 
         // Re-calculate the source amount swapped based on what the curve says
+        //         重新计算的核心目的是：
+        // 	1.	确保交易费用被正确计算并加到源代币或目标代币的金额中。
+        // 	2.	根据当前周期、代币小数位和费用策略动态调整金额。
+        // 	3.	防止滑点过大导致交易失败，通过计算实际接收金额并与最低接收金额进行比较，保护用户免受不合理的交易条件。
+        // 	4.	解决源代币和目标代币数量不一致的情况，确保在交易后得出的金额符合预期。
+
+        // 重新计算不仅是为了确保交易金额的准确性，还能保证交易的公平性、合理性和防止潜在的错误。
+        // 源代币计算: 根据源代币的交换数量和费用配置，重新计算源代币的实际交换数量。
         let (source_transfer_amount, source_mint_decimals) = {
             let source_amount_swapped = to_u64(result.source_amount_swapped)?;
 
@@ -529,6 +582,8 @@ impl Processor {
                 source_token_mint_info.owner,
                 token_swap.token_program_id(),
             )?;
+            // 调用 calculate_inverse_epoch_fee 来计算与当前周期相关的费用，并将其加到源代币交换数量 source_amount_swapped 上
+            // •	源代币加法：计算转账费用时，源代币数量增加，因为用户支付的费用会加到源代币金额上，实际转账金额增加。
             let amount =
                 if let Ok(transfer_fee_config) = source_mint.get_extension::<TransferFeeConfig>() {
                     source_amount_swapped.saturating_add(
@@ -541,7 +596,8 @@ impl Processor {
                 };
             (amount, source_mint.base.decimals)
         };
-
+        // 目标代币计算: 根据目标代币的交换数量、费用配置以及滑点限制，重新计算目标代币的实际交换数量，并判断是否满足最低输出要求。
+        // 目标代币减法：计算目标代币费用时，目标代币数量减少，因为用户实际收到的目标代币会扣除费用，最终数量减少。
         let (destination_transfer_amount, destination_mint_decimals) = {
             let destination_mint_data = destination_token_mint_info.data.borrow();
             let destination_mint = Self::unpack_mint_with_extensions(
@@ -550,6 +606,7 @@ impl Processor {
                 token_swap.token_program_id(),
             )?;
             let amount_out = to_u64(result.destination_amount_swapped)?;
+            // 尝试从目标代币的铸造数据中获取 TransferFeeConfig 扩展，计算目标代币的费用。通过调用 calculate_epoch_fee 计算当前周期的费用，并从目标代币的数量中减去。
             let amount_received = if let Ok(transfer_fee_config) =
                 destination_mint.get_extension::<TransferFeeConfig>()
             {
@@ -561,6 +618,7 @@ impl Processor {
             } else {
                 amount_out
             };
+            // 计算 amount_received，如果低于 minimum_amount_out，则交易失败，避免滑点过大。
             if amount_received < minimum_amount_out {
                 return Err(SwapError::ExceededSlippage.into());
             }
@@ -577,7 +635,7 @@ impl Processor {
                 result.new_swap_source_amount,
             ),
         };
-
+        // 用户 -> 交换池：转移 source_transfer_amount 代币
         Self::token_transfer(
             swap_info.key,
             source_token_program_info.clone(),
@@ -589,7 +647,7 @@ impl Processor {
             source_transfer_amount,
             source_mint_decimals,
         )?;
-
+        // 计算协议费用，并可能分配给流动性提供者。
         if result.owner_fee > 0 {
             let mut pool_token_amount = token_swap
                 .swap_curve()
@@ -646,7 +704,7 @@ impl Processor {
                 )?;
             };
         }
-
+        // 交换池 -> 用户：转移 destination_transfer_amount 代币
         Self::token_transfer(
             swap_info.key,
             destination_token_program_info.clone(),
