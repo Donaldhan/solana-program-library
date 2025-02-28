@@ -110,12 +110,21 @@ impl PreciseNumber {
     }
 
     /// Floors a precise value to a precision of ONE
+    /// 尽管函数名是 floor，它并没有真正执行常见的 “向下取整” 操作（如将 3.7 转换为 3），
+    /// 而是通过对值进行除以 1 后再乘以 1 的方式来进行一些安全性检查。实际效果是它对当前值进行了无效的操作——并且它的主要目的是确保在执行过程中不会发生除法或乘法错误。
+
     pub fn floor(&self) -> Option<Self> {
         let value = self.value.checked_div(one())?.checked_mul(one())?;
         Some(Self { value })
     }
 
     /// Ceiling a precise value to a precision of ONE
+    /// 虽然函数名称是 ceiling（意味着通常会对数值进行“向上取整”操作），但该实现并没有直接执行常见的“向上取整”操作（例如将 3.2 转换为 4）。
+    /// 相反，它通过一些不改变数值的操作来模拟向上取整的效果：
+    // 	1.	先将值加上 0（实际上没变），然后进行除法和乘法操作，确保不会因为计算过程中的小误差而出错。
+    // 	2.	虽然函数名称是 ceiling，但其操作的效果与 ceiling 有些不同——它没有直接对数值进行四舍五入或修改，而是通过一些数学运算保持数值的稳定性和安全性。
+
+    // 从设计上看，这段代码可能是出于确保精确度和避免溢出或异常的一种策略。ceiling 这个名字可能在这段代码的实际应用中有着更具体的业务背景。
     pub fn ceiling(&self) -> Option<Self> {
         let value = self
             .value

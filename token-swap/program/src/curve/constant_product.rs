@@ -135,10 +135,14 @@ pub fn deposit_single_token_type(
     };
     let swap_source_amount = PreciseNumber::new(swap_source_amount)?;
     let source_amount = PreciseNumber::new(source_amount)?;
+    // 计算用户存入的代币数量和当前池中源代币的数量的比例，表示用户存入的代币占池中源代币的比例。
     let ratio = source_amount.checked_div(&swap_source_amount)?;
     let one = PreciseNumber::new(1)?;
+    // •	base = 1 + ratio：基于用户存入的代币数量和池中源代币的比例，计算一个基数。
+	// •	root = sqrt(base) - 1：计算基数的平方根，并减去 1。这个操作反映了用户存入代币后，在池中所能获得的池子代币数量的比例。
     let base = one.checked_add(&ratio)?;
     let root = base.sqrt()?.checked_sub(&one)?;
+    // 计算池子代币数量 (pool_tokens)：
     let pool_supply = PreciseNumber::new(pool_supply)?;
     let pool_tokens = pool_supply.checked_mul(&root)?;
     match round_direction {

@@ -113,6 +113,8 @@ impl SwapCurve {
     }
 
     /// Get the amount of pool tokens for the deposited amount of token A or B
+    /// 单一类型代币的存入操作，它会先计算用户存入的代币所需支付的费用（包括交易费用和所有者费用），
+    /// 然后使用交换协议的计算器根据存入的代币数量、池子的代币状态和费用计算出用户获得的池子代币数量。
     pub fn deposit_single_token_type(
         &self,
         source_amount: u128,
@@ -128,6 +130,7 @@ impl SwapCurve {
         // Get the trading fee incurred if *half* the source amount is swapped
         // for the other side. Reference at:
         // https://github.com/balancer-labs/balancer-core/blob/f4ed5d65362a8d6cec21662fb6eae233b0babc1f/contracts/BMath.sol#L117
+        // 计算交易费
         let half_source_amount = std::cmp::max(1, source_amount.checked_div(2)?);
         let trade_fee = fees.trading_fee(half_source_amount)?;
         let owner_fee = fees.owner_trading_fee(half_source_amount)?;

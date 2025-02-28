@@ -1027,12 +1027,18 @@ impl Processor {
     }
 
     /// Processes DepositSingleTokenTypeExactAmountIn
+    /// 代币存入操作，用户存入一定数量的源代币后，系统根据当前的交换曲线计算出应该获得的池子代币数量，确保操作在规定的滑点范围内，然后执行代币转账和池子代币铸造的操作，最终完成存款过程。
+    /// 	•	program_id: &Pubkey：调用此函数的智能合约程序的 ID。
+	// •	source_token_amount: u64：用户存入的源代币数量。
+	// •	minimum_pool_token_amount: u64：用户期望最低获得的池子代币数量，用于防止滑点过大。
+	// •	accounts: &[AccountInfo]：一组账户信息，这些账户用于进行存款和代币转账操作。
     pub fn process_deposit_single_token_type_exact_amount_in(
         program_id: &Pubkey,
         source_token_amount: u64,
         minimum_pool_token_amount: u64,
         accounts: &[AccountInfo],
     ) -> ProgramResult {
+        // 解析账户信息
         let account_info_iter = &mut accounts.iter();
         let swap_info = next_account_info(account_info_iter)?;
         let authority_info = next_account_info(account_info_iter)?;
@@ -1046,11 +1052,13 @@ impl Processor {
         let source_token_program_info = next_account_info(account_info_iter)?;
         let pool_token_program_info = next_account_info(account_info_iter)?;
 
+        // 从 swap_info 中解包出 token_swap 对象，它包含了交换协议的状态。然后获取 swap_curve（交换曲线），通过 calculator 来检查是否允许存款操作。如果不允许存款，函数会返回错误。
         let token_swap = SwapVersion::unpack(&swap_info.data.borrow())?;
         let calculator = &token_swap.swap_curve().calculator;
         if !calculator.allows_deposits() {
             return Err(SwapError::UnsupportedCurveOperation.into());
         }
+        // 解包用户存入代币的账户，确保其有效性
         let source_account =
             Self::unpack_token_account(source_info, token_swap.token_program_id())?;
         let swap_token_a =
@@ -1058,6 +1066,7 @@ impl Processor {
         let swap_token_b =
             Self::unpack_token_account(swap_token_b_info, token_swap.token_program_id())?;
 
+        // 确认交换方向
         let trade_direction = if source_account.mint == swap_token_a.mint {
             TradeDirection::AtoB
         } else if source_account.mint == swap_token_b.mint {
@@ -1065,12 +1074,12 @@ impl Processor {
         } else {
             return Err(SwapError::IncorrectSwapAccount.into());
         };
-
+        
         let (source_a_info, source_b_info) = match trade_direction {
             TradeDirection::AtoB => (Some(source_info), None),
             TradeDirection::BtoA => (None, Some(source_info)),
         };
-
+        // 账户验证
         Self::check_accounts(
             token_swap.as_ref(),
             program_id,
@@ -1087,6 +1096,7 @@ impl Processor {
 
         let pool_mint = Self::unpack_mint(pool_mint_info, token_swap.token_program_id())?;
         let pool_mint_supply = u128::from(pool_mint.supply);
+        // 池子代币的计算
         let pool_token_amount = if pool_mint_supply > 0 {
             token_swap
                 .swap_curve()
@@ -1102,15 +1112,16 @@ impl Processor {
         } else {
             calculator.new_pool_supply()
         };
-
+        
         let pool_token_amount = to_u64(pool_token_amount)?;
+        // 如果计算出的池子代币数量小于 minimum_pool_token_amount，或者为 0，则返回错误，表示滑点过大或没有交易代币。
         if pool_token_amount < minimum_pool_token_amount {
             return Err(SwapError::ExceededSlippage.into());
         }
         if pool_token_amount == 0 {
             return Err(SwapError::ZeroTradingTokens.into());
         }
-
+        // 根据交易方向，将源代币转入相应的池子代币账户
         match trade_direction {
             TradeDirection::AtoB => {
                 Self::token_transfer(
@@ -1141,6 +1152,7 @@ impl Processor {
                 )?;
             }
         }
+        // 将计算出的池子代币数量铸造到用户的目标账户中
         Self::token_mint_to(
             swap_info.key,
             pool_token_program_info.clone(),
@@ -1156,6 +1168,12 @@ impl Processor {
 
     /// Processes a
     /// [WithdrawSingleTokenTypeExactAmountOut](enum.Instruction.html).
+    /// 处理从去中心化交易池中提取单一代币，并确保提取的代币数量符合要求，同时考虑到手续费、池代币销毁等操作。
+    /// 它确保了提取过程的安全性和正确性，通过一系列的计算、验证和代币操作，完成提现任务；
+    ///•	program_id: 表示当前程序的公钥。
+	// •	destination_token_amount: 这是用户希望提取的目标代币数量。
+	// •	maximum_pool_token_amount: 用户愿意支付的最大池代币数量。
+	// •	accounts: 包含所有与该操作相关的账户信息列表，包括池代币账户、授权账户等。
     pub fn process_withdraw_single_token_type_exact_amount_out(
         program_id: &Pubkey,
         destination_token_amount: u64,
@@ -1214,7 +1232,7 @@ impl Processor {
         let pool_mint_supply = u128::from(pool_mint.supply);
         let swap_token_a_amount = u128::from(swap_token_a.amount);
         let swap_token_b_amount = u128::from(swap_token_b.amount);
-
+        // 计算用户提取指定数量的目标代币时需要销毁的池代币数量。这个计算会根据当前的池代币数量、目标代币数量、交易方向等因素来确定。
         let burn_pool_token_amount = token_swap
             .swap_curve()
             .withdraw_single_token_type_exact_out(
@@ -1226,7 +1244,7 @@ impl Processor {
                 token_swap.fees(),
             )
             .ok_or(SwapError::ZeroTradingTokens)?;
-
+        // 计算提现费用，如果提现是从池费用账户中提取的，就不收取手续费。否则根据交换池的规则收取一定的手续费。
         let withdraw_fee = match token_swap.check_pool_fee_info(pool_fee_account_info) {
             Ok(_) => {
                 if *pool_fee_account_info.key == *source_info.key {
@@ -1241,6 +1259,7 @@ impl Processor {
             }
             Err(_) => 0,
         };
+        // 确保计算出来的池代币数量没有超过用户设定的最大值，避免因滑点导致不合理的提现数量
         let pool_token_amount = burn_pool_token_amount
             .checked_add(withdraw_fee)
             .ok_or(SwapError::CalculationFailure)?;
@@ -1251,7 +1270,7 @@ impl Processor {
         if pool_token_amount == 0 {
             return Err(SwapError::ZeroTradingTokens.into());
         }
-
+        // 手续费转移和池代币销毁
         if withdraw_fee > 0 {
             Self::token_transfer(
                 swap_info.key,
@@ -1274,7 +1293,7 @@ impl Processor {
             token_swap.bump_seed(),
             to_u64(burn_pool_token_amount)?,
         )?;
-
+        // 根据交易方向，将目标代币（swap_token_a 或 swap_token_b）转移到目标账户中
         match trade_direction {
             TradeDirection::AtoB => {
                 Self::token_transfer(
