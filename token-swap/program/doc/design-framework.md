@@ -5,9 +5,81 @@ processor.rs
         Self::process_with_constraints(program_id, accounts, input, &SWAP_CONSTRAINTS)
     }
 ```
+# 代码结构图
 
+Token Swap Program  
+├── **Initialize**  
+│   ├── Set Fees  
+│   ├── Set Swap Curve (ConstantProduct / ConstantPrice / Offset)  
+│  
+├── **Swap**  
+│   ├── Input Token  
+│   ├── Output Token  
+│   ├── Validate Slippage  
+│   ├── Execute Swap  
+│  
+├── **DepositAllTokenTypes**  
+│   ├── Calculate Pool Token Amount  
+│   ├── Deposit Token A and Token B  
+│   ├── Mint Pool Tokens (LP Token)  
+│  
+├── **WithdrawAllTokenTypes**  
+│   ├── Calculate Pool Token Burn Amount  
+│   ├── Withdraw Token A and Token B  
+│   ├── Burn Pool Tokens (LP Token)  
+│  
+├── **DepositSingleTokenTypeExactAmountIn**  
+│   ├── Calculate Pool Token Amount  
+│   ├── Deposit Single Token (A or B)  
+│   ├── Mint Pool Tokens (LP Token)  
+│  
+├── **WithdrawSingleTokenTypeExactAmountOut**  
+│   ├── Calculate Pool Token Burn Amount  
+│   ├── Withdraw Single Token (A or B)  
+│   ├── Burn Pool Tokens (LP Token)  
+│  
+├── **Swap Pool Information**  
+│   ├── Pool Token Balances  
+│   ├── Fee Structure  
+│   ├── Swap Curve Type  
+│  
+├── **Swap Curve Types**  
+│   ├── ConstantProduct  
+│   ├── ConstantPrice  
+│   ├── Offset  
+│  
+├── **Process**  
+│   ├── Parse Instruction  
+│   ├── Execute Action (Swap, Deposit, Withdraw)  
+│  
+└── **ProcessWithConstraints**  
+    ├── Parse and Validate Constraints  
+    ├── Execute Action with Constraints (Max Slippage, Max/Min Amount)  
 
+# 资金流向图
 
+                           +---------------------+
+                           |     User (A)        |
+                           +---------------------+
+                                   |
+                                   | Token A or Token B
+                                   |
+                +---------------------------------------------+
+                |                 Token Swap Pool           |
+                |                                             |
+                |  +-----------------+   +----------------+   |
+                |  | Token A Balance |   | Token B Balance |   |
+                |  +-----------------+   +----------------+   |
+                |                                             |
+                |   - Fees (Transaction Fees)                  |
+                |   - Pool Tokens (LP Token)                   |
+                +---------------------------------------------+
+                                   |
+                                   | (Transaction Fees or LP Tokens)
+                                   |
+                           +---------------------+
+                           |     User (B)        |
+                           +---------------------+
 
 # Solana Token Swap核心功能
 
